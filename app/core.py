@@ -17,6 +17,7 @@ import numpy as np
 from sklearn.feature_extraction.text import HashingVectorizer
 from .cleaning import clean_document
 from .faq import ANSWER, QUESTION, extract_faqs
+from .html_extract import extract_html_text
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.getenv('RAG_DB', ROOT / 'data' / 'rag.sqlite3'))
@@ -100,6 +101,8 @@ def parse_document(filename: str, content: bytes) -> str:
     ext = Path(filename).suffix.lower()
     if ext in ('.txt', '.md'):
         return content.decode('utf-8-sig')
+    if ext in ('.html', '.htm'):
+        return extract_html_text(content)
     if ext == '.docx':
         from io import BytesIO
         with zipfile.ZipFile(BytesIO(content)) as z:
@@ -111,7 +114,7 @@ def parse_document(filename: str, content: bytes) -> str:
         from io import BytesIO
         from pypdf import PdfReader
         return '\n'.join(page.extract_text() or '' for page in PdfReader(BytesIO(content)).pages)
-    raise ValueError('仅支持 .txt、.md、.docx、.pdf')
+    raise ValueError('仅支持 .txt、.md、.html、.htm、.docx、.pdf')
 
 
 def split_text(text: str, max_chars=360, overlap=50):

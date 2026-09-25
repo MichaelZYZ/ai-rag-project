@@ -14,7 +14,7 @@ input,select,textarea,button{font:inherit}input,select,textarea{width:100%;borde
 textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;background:#1263a6;color:#fff;cursor:pointer}button:hover{background:#0e4c80}button.secondary{background:#e8f1f8;color:#13436a}
 .chat{display:flex;flex-direction:column;min-height:670px}.messages{flex:1;overflow:auto;max-height:440px;padding-right:6px}.product-chooser{position:sticky;top:0;z-index:1;background:#eef5fc;border:1px solid #d8e7f5;border-radius:12px;padding:12px 14px;max-height:185px;overflow:auto}
 .bubble{border-radius:12px;padding:12px 14px;margin:10px 0;max-width:90%;white-space:pre-wrap;line-height:1.55}.user{background:#dceffc;margin-left:auto}.bot{background:#f1f5f9}
-.meta{font-size:12px;color:#67798b;margin:4px 0}.source{font-size:12px;background:#f8fafc;border-left:3px solid #58a5d6;padding:8px;margin:5px 0;white-space:pre-wrap}
+.answer-text{white-space:pre-wrap;overflow-wrap:anywhere}.citation{display:flex;flex-direction:column;align-items:flex-end;margin-top:7px}.citation-trigger{width:25px;height:25px;padding:0;border:1px solid #8aaaca;border-radius:50%;background:#e2eef8;color:#195b91;font-size:16px;font-weight:700;line-height:1}.citation-trigger:hover,.citation-trigger:focus-visible{background:#cce2f4;color:#10446d}.citation-panel{display:none;align-self:stretch;padding:10px 12px;background:#fff;border:1px solid #cbdbe9;border-radius:9px;box-shadow:0 4px 12px #102b4418;font-size:12px;line-height:1.5;max-height:260px;overflow:auto;white-space:normal}.citation-trigger:hover+.citation-panel,.citation-trigger:focus-visible+.citation-panel,.citation-panel:hover,.citation.is-open .citation-panel{display:block}.citation-panel strong{display:block;margin-bottom:7px}.citation-source{border-top:1px solid #e4ebf2;padding:8px 0}.citation-source:first-of-type{border-top:0}.citation-source-label{font-weight:600;color:#28577d}.citation-source-text{margin-top:4px;color:#50637a;white-space:pre-wrap;overflow-wrap:anywhere}
 .row{display:flex;gap:8px}.row>*{flex:1}.composer{border-top:1px solid #e4ebf2;padding-top:12px}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat{background:#f3f7fb;padding:10px;border-radius:8px}.stat strong{display:block;font-size:20px}
 .bar{height:12px;background:#e7eef5;border-radius:8px;overflow:hidden;margin:4px 0 11px}.bar span{display:block;height:100%;background:#3585bf}.barlabel{font-size:12px;color:#50637a}
@@ -37,7 +37,7 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 <label>产品名称</label><input id="newName" placeholder="例如 演示产品">
 <button id="addProduct" style="margin-top:9px">添加产品</button>
 <label>类别</label><input id="category" value="产品说明">
-<label>上传资料</label><input id="file" type="file" accept=".txt,.md,.docx,.pdf">
+<label>上传资料</label><input id="file" type="file" accept=".txt,.md,.html,.htm,.docx,.pdf">
 <button id="upload" style="margin-top:9px">导入到当前产品/版本</button>
 <p id="adminMsg" class="hint"></p><ul id="docs"></ul>
 </details>
@@ -71,9 +71,32 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 </form>
 </dialog>
 <script>
-const $=id=>document.getElementById(id); let sessionId=null,currentGapId=null;
+const $=id=>document.getElementById(id); let sessionId=null,currentGapId=null,citationCounter=0;
 async function api(path,opts={}){const r=await fetch(path,opts);const d=await r.json();if(!r.ok)throw Error(d.detail||'请求失败');return d}
 function node(tag,text,cls){const x=document.createElement(tag);x.textContent=text;if(cls)x.className=cls;return x}
+function scoreLabel(value){const n=Number(value);return Number.isFinite(n)?Math.round(n*100)+'%':'—'}
+function answerBubble(result){
+  const bubble=node('div','', 'bubble bot answer-bubble');
+  bubble.append(node('div',result.answer,'answer-text'));
+  const citation=node('div','', 'citation');
+  const trigger=node('button','!','citation-trigger');trigger.type='button';
+  trigger.setAttribute('aria-label','查看知识库来源和相关度');trigger.title='查看知识库来源和相关度';
+  trigger.setAttribute('aria-expanded','false');
+  const panel=node('div','', 'citation-panel');panel.id='citation-'+(++citationCounter);
+  panel.setAttribute('role','region');panel.setAttribute('aria-label','知识库来源和相关度');
+  trigger.setAttribute('aria-controls',panel.id);
+  const sources=Array.isArray(result.sources)?result.sources:[];
+  panel.append(node('strong','知识库来源与相关度'));
+  if(sources.length){
+    for(const source of sources){
+      const item=node('div','', 'citation-source');
+      item.append(node('div',`${source.source||'未知来源'} · ${source.category||'未分类'} · 相关度 ${scoreLabel(source.score)}`,'citation-source-label'));
+      item.append(node('div',source.text||'','citation-source-text'));panel.append(item);
+    }
+  }else panel.append(node('div','本条回复未引用知识库资料。'));
+  trigger.onclick=()=>{const open=!citation.classList.contains('is-open');citation.classList.toggle('is-open',open);trigger.setAttribute('aria-expanded',String(open))};
+  citation.append(trigger,panel);bubble.append(citation);return bubble;
+}
 function scopeLabel(){const name=$('product').selectedOptions[0]?.text;return $('product').value?`当前：${name} · ${$('version').value||'暂无版本'}`:'当前未选择产品'}
 function selectProduct(id){
   if(![...$('product').options].some(o=>o.value===id))return;
@@ -169,10 +192,8 @@ async function send(){
     if(x.status==='product_found'||(x.status==='no_product'&&!x.product_id)){
       sessionId=null;$('product').value='';versions();docs();$('currentScope').textContent=scopeLabel();
     }
-    box.append(node('div',x.answer,'bubble bot'));
+    box.append(answerBubble(x));
     if(x.matched_products&&x.matched_products.length)showProductList(x.matched_products,'点击产品名称开始问答：',false);
-    box.append(node('div',`状态：${x.status} · 相关度：${x.confidence} · 耗时：${x.latency_ms} ms`,'meta'));
-    for(const s of x.sources)box.append(node('div',`${s.source} / ${s.category} / 相关度 ${s.score}\n${s.text}`,'source'));
     if(x.status==='answered'){const row=node('div','', 'row');for(const [label,rating] of [['有帮助',1],['没帮助',-1]]){const b=node('button',label,'secondary');b.onclick=async()=>{await api('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sessionId,rating})});b.disabled=true};row.append(b)}box.append(row)}
     await refresh();
   }catch(e){box.append(node('div',e.message,'error'))}$('messages').scrollTop=$('messages').scrollHeight;
