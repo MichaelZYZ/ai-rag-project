@@ -6,6 +6,29 @@ import re
 QUESTION = re.compile(r'^(?:Q(?:uestion)?|问(?:题)?)\s*[:：.、]\s*(.+)$', re.IGNORECASE)
 ANSWER = re.compile(r'^(?:A(?:nswer)?|答(?:案)?)\s*[:：.、]\s*(.+)$', re.IGNORECASE)
 INLINE = re.compile(r'^(?:Q(?:uestion)?|问(?:题)?)\s*[:：.、]\s*(.+?)\s*(?:A(?:nswer)?|答(?:案)?)\s*[:：.、]\s*(.+)$', re.IGNORECASE)
+SECTION_QUESTIONS = {
+    '产品介绍': ('什么是{product}？', '产品介绍'),
+    '产品简介': ('什么是{product}？', '产品介绍'),
+    '产品概述': ('什么是{product}？', '产品介绍'),
+    '概述': ('什么是{product}？', '产品介绍'),
+    '简介': ('什么是{product}？', '产品介绍'),
+    '产品概览与硬件结构': ('{product}有哪些主要硬件结构？', '产品介绍'),
+    '接口与包装': ('{product}的接口与包装有哪些说明？', '产品介绍'),
+    '主要功能': ('{product}有哪些功能？', '功能介绍'),
+    '核心功能': ('{product}有哪些功能？', '功能介绍'),
+    '核心功能与内置软件': ('{product}有哪些主要功能？', '功能介绍'),
+    '功能介绍': ('{product}有哪些功能？', '功能介绍'),
+    '功能': ('{product}有哪些功能？', '功能介绍'),
+    '首次开机': ('{product}如何首次开机？', '操作步骤'),
+    '手势与按键': ('{product}有哪些常用手势和按键操作？', '操作步骤'),
+    '系统设置与个性化': ('如何设置{product}？', '操作步骤'),
+    '使用方法': ('如何使用{product}？', '操作步骤'),
+    '操作步骤': ('如何使用{product}？', '操作步骤'),
+    '快速入门': ('如何使用{product}？', '操作步骤'),
+    '产品参数': ('{product}有哪些主要参数？', '参数限制'),
+    '规格参数': ('{product}有哪些主要参数？', '参数限制'),
+    '技术规格': ('{product}有哪些主要参数？', '参数限制'),
+}
 
 
 def _fact_body(line: str, product_name: str) -> str:
@@ -21,6 +44,8 @@ def _rule_question(line: str, product_name: str):
     body = _fact_body(line, product_name)
     if not body or '?' in body or '？' in body:
         return None
+    if product_name and line.startswith(product_name) and re.match(r'^(?:是一个|是一款|是一种|主要用于|用于)', body):
+        return f'什么是{product_name}？', '产品介绍'
     limit = re.search(r'(.{0,25}?)最多支持\s*\d+(?:\.\d+)?\s*([^，。；]+)', body)
     if limit:
         return f'{limit.group(1)}最多支持多少{limit.group(2).strip()}？', '参数限制'
@@ -44,6 +69,35 @@ def _rule_question(line: str, product_name: str):
         format_name = re.search(r'\b(?:PDF|Word|Excel|CSV)\b', body, re.IGNORECASE)
         return f'如何导出{(" " + format_name.group(0)) if format_name else ""}？', '操作步骤'
     return None
+
+
+def _section_faqs(lines, product_name):
+    """Make broad common questions only from explicitly titled sections."""
+    if not product_name:
+        return []
+    result, current, facts = [], None, []
+
+    def flush():
+        if current and facts:
+            answer = '\n'.join(facts)
+            if len(answer) >= 8:
+                question, category = current
+                result.append({'question': question.format(product=product_name),
+                               'answer': answer, 'category': category, 'kind': 'auto'})
+
+    for line in lines:
+        if line.startswith('#'):
+            flush()
+            heading = re.sub(r'^[\d一二三四五六七八九十.、\s]+', '', line.lstrip('#').strip())
+            current = SECTION_QUESTIONS.get(heading)
+            facts = []
+            continue
+        if not current or QUESTION.match(line) or ANSWER.match(line) or line.endswith(('?', '？')):
+            continue
+        if len(facts) < 5 and sum(map(len, facts)) + len(line) <= 600:
+            facts.append(line)
+    flush()
+    return result
 
 
 def extract_faqs(text: str, product_name: str):
@@ -98,6 +152,8 @@ def extract_faqs(text: str, product_name: str):
             if category == '参数限制' and '上传限制' in generated_question and re.search(r'\d+\s*(?:MB|GB|KB)', line, re.IGNORECASE):
                 found.append({'question': generated_question.replace('上传限制', '大小限制'),
                               'answer': line, 'category': category, 'kind': 'rule'})
+
+    found.extend(_section_faqs(lines, product_name))
 
     # Keep the first source-backed answer for duplicate questions in one document.
     unique, seen = [], set()

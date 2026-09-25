@@ -97,6 +97,10 @@ def documents(product_id: Optional[str] = None):
 def faqs(product_id: str, version: str):
     return core.list_faqs(product_id, version)
 
+@app.post('/api/faqs/train')
+def train_faqs():
+    return core.bootstrap_faqs()
+
 @app.delete('/api/documents/{document_id}')
 def delete_document(document_id: str):
     with core.connect() as db:
@@ -145,6 +149,7 @@ def stats():
         return {'questions': total, 'answered': counts.get('answered', 0),
                 'handoffs': counts.get('handoff', 0),
                 'unanswered': counts.get('no_answer', 0) + counts.get('no_product', 0),
+                'auto_faqs': db.execute("SELECT count(*) FROM faqs WHERE kind IN ('auto','rule')").fetchone()[0],
                 'open_gap_count': db.execute('SELECT count(*) FROM unanswered WHERE resolved_at IS NULL').fetchone()[0],
                 'resolution_rate': round(counts.get('answered', 0) / total, 3) if total else 0,
                 'feedback_positive': db.execute('SELECT count(*) FROM feedback WHERE rating=1').fetchone()[0],

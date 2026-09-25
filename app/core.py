@@ -43,6 +43,8 @@ def init_db():
             category TEXT NOT NULL, title TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL,
             cleaning_report TEXT NOT NULL DEFAULT '{}',
             FOREIGN KEY(product_id) REFERENCES products(id));
+        CREATE TABLE IF NOT EXISTS document_texts(document_id TEXT PRIMARY KEY, text TEXT NOT NULL,
+            FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE);
         CREATE TABLE IF NOT EXISTS chunks(id TEXT PRIMARY KEY, document_id TEXT NOT NULL, product_id TEXT NOT NULL,
             version TEXT NOT NULL, category TEXT NOT NULL, source TEXT NOT NULL, text TEXT NOT NULL,
             vector BLOB NOT NULL, FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE);
@@ -182,6 +184,7 @@ def add_document(product_id, version, category, title, filename, content):
         db.execute('INSERT INTO documents VALUES(?,?,?,?,?,?,?,?)',
                    (doc_id, product_id, version, category, title, filename, now(),
                     json.dumps(cleaning_report, ensure_ascii=False)))
+        db.execute('INSERT INTO document_texts(document_id,text) VALUES(?,?)', (doc_id, text))
         db.executemany('INSERT INTO chunks VALUES(?,?,?,?,?,?,?,?)',
                        [(uuid.uuid4().hex, doc_id, product_id, version, category, filename,
                          c, v.tobytes()) for c, v in zip(chunks, vectors)])
@@ -195,6 +198,89 @@ def add_document(product_id, version, category, title, filename, content):
     return {'document_id': doc_id, 'chunks': len(chunks), 'characters': len(text),
             'faqs': len(faqs), 'faq_preview': [f['question'] for f in faqs[:6]],
             'cleaning': cleaning_report}
+
+
+def reconstruct_chunk_text(db, document_id):
+    """Recover headings and overlapped long lines from older indexed documents."""
+    lines, current_heading = [], None
+    for row in db.execute('SELECT text FROM chunks WHERE document_id=? ORDER BY rowid',
+                          (document_id,)):
+        chunk = row['text']
+        if '\n' in chunk:
+            heading, body = chunk.split('\n', 1)
+            if heading != current_heading:
+                lines.append('# ' + heading)
+                current_heading = heading
+        else:
+            body = chunk
+            current_heading = None
+        if not body.strip():
+            continue
+        # Long original lines were cut with a 50-character overlap.
+        overlap = 0
+        if lines and not lines[-1].startswith('# '):
+            for size in range(min(80, len(body), len(lines[-1])), 19, -1):
+                if lines[-1].endswith(body[:size]):
+                    overlap = size
+                    break
+        if overlap:
+            lines[-1] += body[overlap:]
+        else:
+            lines.append(body)
+    return '\n'.join(lines)
+
+
+def bootstrap_faqs():
+    """On demand, fill missing source-backed FAQs without changing model weights."""
+    added = scanned = 0
+    with connect() as db:
+        documents = db.execute('''SELECT d.id,d.product_id,d.version,d.category,d.source,
+                                         p.name product_name
+                                  FROM documents d JOIN products p ON p.id=d.product_id
+                                  WHERE d.source != '人工补充'
+                                  ORDER BY d.rowid''').fetchall()
+        for doc in documents:
+            scanned += 1
+            stored = db.execute('SELECT text FROM document_texts WHERE document_id=?',
+                                (doc['id'],)).fetchone()
+            source_text = (stored['text'] if stored else '') or reconstruct_chunk_text(db, doc['id'])
+            if not source_text.strip():
+                continue
+            source_lines = set(source_text.splitlines())
+            proposals = []
+            for faq in extract_faqs(source_text, doc['product_name']):
+                key = faq_terms(faq['question'], doc['product_name'])
+                answer_lines = [line.strip() for line in faq['answer'].splitlines() if line.strip()]
+                # Every answer line must be copied from this document's text.
+                if not key or not answer_lines or any(
+                        line not in source_lines and line not in source_text for line in answer_lines):
+                    continue
+                proposals.append((key, faq))
+            if not proposals:
+                continue
+            # Lock only while writing this document, then release it for chat requests.
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM documents WHERE id=?', (doc['id'],)).fetchone():
+                db.rollback()
+                continue
+            existing = {faq_terms(row['question'], doc['product_name']) for row in db.execute(
+                'SELECT question FROM faqs WHERE document_id=?', (doc['id'],))}
+            candidates = []
+            for key, faq in proposals:
+                if key not in existing:
+                    existing.add(key)
+                    candidates.append((key, faq))
+            for start in range(0, len(candidates), 64):
+                batch = candidates[start:start + 64]
+                vectors = VECTORIZER.transform([key for key, _ in batch]).astype(np.float32).toarray()
+                db.executemany('INSERT INTO faqs VALUES(?,?,?,?,?,?,?,?,?,?)', [
+                    (uuid.uuid4().hex, doc['id'], doc['product_id'], doc['version'],
+                     faq['category'], doc['source'], faq['question'], faq['answer'],
+                     faq['kind'], vector.tobytes())
+                    for (_, faq), vector in zip(batch, vectors)])
+            db.commit()
+            added += len(candidates)
+    return {'documents_scanned': scanned, 'faqs_added': added}
 
 
 def product_catalog(limit=None):
@@ -349,7 +435,7 @@ def list_faqs(product_id, version, limit=12):
     with connect() as db:
         rows = db.execute('''SELECT question, answer, category, source, kind FROM faqs
                              WHERE product_id=? AND version=?
-                             ORDER BY CASE kind WHEN 'manual' THEN 0 WHEN 'explicit' THEN 1 ELSE 2 END, rowid
+                             ORDER BY CASE kind WHEN 'manual' THEN 0 WHEN 'explicit' THEN 1 WHEN 'auto' THEN 2 ELSE 3 END, rowid
                              LIMIT ?''', (product_id, version, limit)).fetchall()
     return [dict(row) for row in rows]
 

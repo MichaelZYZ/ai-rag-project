@@ -12,7 +12,7 @@
 h2{font-size:16px;margin:0 0 16px}label{display:block;font-size:13px;color:#50637a;margin:12px 0 5px}
 input,select,textarea,button{font:inherit}input,select,textarea{width:100%;border:1px solid #cbd7e4;border-radius:8px;padding:9px;background:white}
 textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;background:#1263a6;color:#fff;cursor:pointer}button:hover{background:#0e4c80}button.secondary{background:#e8f1f8;color:#13436a}
-.chat{display:flex;flex-direction:column;min-height:670px}.messages{flex:1;overflow:auto;max-height:440px;padding-right:6px}.product-chooser{position:sticky;top:0;z-index:1;background:#eef5fc;border:1px solid #d8e7f5;border-radius:12px;padding:12px 14px;max-height:185px;overflow:auto}
+.chat{display:flex;flex-direction:column;min-height:670px}.messages{flex:1;overflow:auto;max-height:440px;padding-right:6px}.product-chooser{position:sticky;top:0;z-index:1;background:#eef5fc;border:1px solid #d8e7f5;border-radius:12px;padding:12px 14px;max-height:185px;overflow:auto;margin:0}.product-chooser:not([open]){max-height:none}.product-chooser summary{cursor:pointer;font-weight:600;line-height:1.5;padding-right:48px;position:relative}.product-chooser summary::after{content:'收起';position:absolute;right:0;top:0;color:#1263a6;font-size:12px}.product-chooser:not([open]) summary::after{content:'展开'}
 .bubble{border-radius:12px;padding:12px 14px;margin:10px 0;max-width:90%;white-space:pre-wrap;line-height:1.55}.user{background:#dceffc;margin-left:auto}.bot{background:#f1f5f9}
 .answer-text{white-space:pre-wrap;overflow-wrap:anywhere}.citation{display:flex;flex-direction:column;align-items:flex-end;margin-top:7px}.citation-trigger{width:25px;height:25px;padding:0;border:1px solid #8aaaca;border-radius:50%;background:#e2eef8;color:#195b91;font-size:16px;font-weight:700;line-height:1}.citation-trigger:hover,.citation-trigger:focus-visible{background:#cce2f4;color:#10446d}.citation-panel{display:none;align-self:stretch;padding:10px 12px;background:#fff;border:1px solid #cbdbe9;border-radius:9px;box-shadow:0 4px 12px #102b4418;font-size:12px;line-height:1.5;max-height:260px;overflow:auto;white-space:normal}.citation-trigger:hover+.citation-panel,.citation-trigger:focus-visible+.citation-panel,.citation-panel:hover,.citation.is-open .citation-panel{display:block}.citation-panel strong{display:block;margin-bottom:7px}.citation-source{border-top:1px solid #e4ebf2;padding:8px 0}.citation-source:first-of-type{border-top:0}.citation-source-label{font-weight:600;color:#28577d}.citation-source-text{margin-top:4px;color:#50637a;white-space:pre-wrap;overflow-wrap:anywhere}
 .row{display:flex;gap:8px}.row>*{flex:1}.composer{border-top:1px solid #e4ebf2;padding-top:12px}
@@ -44,14 +44,16 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 </aside>
 <section class="card chat">
 <div class="row" style="align-items:center;margin-bottom:12px"><h2 style="margin:0;flex:1">问答窗口</h2><button id="chatManualFaqButton" type="button" style="flex:0 0 auto">+ 补充知识缺口</button></div>
-<div id="messages" class="messages"><div id="productChooser" class="product-chooser">正在加载可咨询的产品…</div><div id="conversation"></div></div>
+<div id="messages" class="messages"><details id="productChooser" class="product-chooser" open><summary id="productChooserTitle">正在加载可咨询的产品…</summary><div id="productChooserContent"></div></details><div id="conversation"></div></div>
 <div class="composer">
 <div class="search-row"><input id="productSearch" placeholder="按产品名称或功能描述查找知识库"><button id="searchButton">查找</button></div>
 <p id="currentScope" class="hint">当前未选择产品</p>
 <textarea id="question" placeholder="输入产品问题或“有没有某产品的知识库”；Enter 发送，Shift+Enter 换行"></textarea>
 <div class="row" style="margin-top:9px"><button id="send">发送问题</button><button id="switchProduct" class="secondary">切换产品</button><button id="reset" class="secondary">新建会话</button></div></div>
 </section>
-<aside class="card"><h2>演示看板</h2><div id="stats" class="stats"></div><div id="chart"></div>
+<aside class="card"><h2>演示看板</h2><div id="stats" class="stats"></div>
+<button id="trainFaqs" type="button" style="width:100%;margin:12px 0 4px">启动自我训练（整理问答）</button>
+<p id="trainMsg" class="hint" aria-live="polite">按需整理已有资料，只补充有原文依据的问答。</p><div id="chart"></div>
 <p class="hint">解决率 = 有知识依据的回答数 / 总提问数。演示统计不代表真实生产效果。</p>
 <h2 style="margin-top:24px">知识缺口</h2>
 <button id="manualFaqButton" type="button" style="width:100%;margin-bottom:8px">+ 手动补充问答</button>
@@ -101,6 +103,7 @@ function scopeLabel(){const name=$('product').selectedOptions[0]?.text;return $(
 function selectProduct(id){
   if(![...$('product').options].some(o=>o.value===id))return;
   $('product').value=id;versions();docs();sessionId=null;
+  $('productChooser').open=false;
   $('currentScope').textContent=scopeLabel();
   $('conversation').replaceChildren(node('div',`已选择 ${$('product').selectedOptions[0].text}，现在可以询问该产品的功能、参数或使用方法。`,'bubble bot'));
   loadFaqSuggestions();
@@ -108,8 +111,9 @@ function selectProduct(id){
   $('question').focus();
 }
 function showProductList(items,title,inChooser=true){
-  const bubble=inChooser?$('productChooser'):node('div','', 'bubble bot');
-  bubble.replaceChildren(node('div',title));
+  const bubble=inChooser?$('productChooserContent'):node('div','', 'bubble bot');
+  if(inChooser){$('productChooserTitle').textContent=title;bubble.replaceChildren()}
+  else bubble.replaceChildren(node('div',title));
   if(items.length){
     const list=node('ol','', 'product-list');
     for(const p of items){const li=node('li','');const b=node('button',p.name,'product-link');b.type='button';b.onclick=()=>selectProduct(p.id);li.append(b);list.append(li)}
@@ -126,10 +130,11 @@ async function switchProduct(){
   sessionId=null;$('product').value='';versions();docs();$('currentScope').textContent=scopeLabel();
   const items=await api('/api/products/catalog');
   showProductList(items,'请选择要切换到的产品：');
+  $('productChooser').open=true;
   $('conversation').replaceChildren();$('messages').scrollTop=0;
 }
 async function findProduct(){
-  const q=$('productSearch').value.trim();if(!q){await featured();return}
+  const q=$('productSearch').value.trim();if(!q){await featured();$('productChooser').open=true;return}
   sessionId=null;$('product').value='';versions();docs();$('currentScope').textContent=scopeLabel();
   const items=await api('/api/products/search?q='+encodeURIComponent(q));
   $('conversation').replaceChildren();
@@ -157,7 +162,7 @@ async function loadFaqSuggestions(){
   $('conversation').append(panel);
 }
 async function refresh(){
-  const s=await api('/api/stats');$('stats').replaceChildren(...[['提问',s.questions],['已回答',s.answered],['待补充',s.open_gap_count],['转人工',s.handoffs],['解决率',Math.round(s.resolution_rate*100)+'%']].map(([k,v])=>{const n=node('div','', 'stat');n.append(node('span',k),node('strong',v));return n}));
+  const s=await api('/api/stats');$('stats').replaceChildren(...[['提问',s.questions],['已回答',s.answered],['自动问答',s.auto_faqs],['待补充',s.open_gap_count],['转人工',s.handoffs],['解决率',Math.round(s.resolution_rate*100)+'%']].map(([k,v])=>{const n=node('div','', 'stat');n.append(node('span',k),node('strong',v));return n}));
   $('chart').replaceChildren(...[['有依据回答',s.answered],['转人工',s.handoffs],['资料不足',s.unanswered]].flatMap(([label,value])=>{const caption=node('div',`${label} ${value}`,'barlabel');const bar=node('div','', 'bar');const fill=node('span','');fill.style.width=(s.questions?value/s.questions*100:0)+'%';bar.append(fill);return [caption,bar]}));
   $('unanswered').replaceChildren(...(s.top_unanswered.length?s.top_unanswered.map(x=>{const li=node('li','', 'gap-item');li.append(node('span',x.question),node('small',`${x.product_name}${x.version?' · '+x.version:''} · ${x.count} 次`));const b=node('button','+ 补充答案','secondary');b.type='button';b.onclick=()=>openGap(x);li.append(b);return li}):[node('li','暂无未解决的知识缺口。','hint')]));const h=await api('/api/handoffs');$('handoffs').replaceChildren(...h.slice(0,5).map(x=>node('li',x.summary)));
 }
@@ -173,6 +178,16 @@ async function openGap(gap=null){
 }
 $('manualFaqButton').onclick=()=>openGap();
 $('chatManualFaqButton').onclick=()=>openGap();
+$('trainFaqs').onclick=async()=>{
+  const button=$('trainFaqs');button.disabled=true;$('trainMsg').textContent='正在整理已有产品资料…';
+  try{
+    const result=await api('/api/faqs/train',{method:'POST'});
+    $('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，新增 ${result.faqs_added} 条问答。`;
+    await refresh();
+    if($('product').value&&$('version').value)await loadFaqSuggestions();
+  }catch(error){$('trainMsg').textContent='整理失败：'+error.message}
+  finally{button.disabled=false}
+};
 $('gapProduct').onchange=()=>{const raw=$('gapProduct').selectedOptions[0]?.dataset.versions;const versions=raw?JSON.parse(raw):[];$('gapVersion').value=versions[0]||'1.0'};
 $('cancelGap').onclick=()=>$('gapDialog').close();
 $('gapForm').onsubmit=async e=>{
@@ -199,7 +214,7 @@ async function send(){
   }catch(e){box.append(node('div',e.message,'error'))}$('messages').scrollTop=$('messages').scrollHeight;
 }
 $('send').onclick=send;$('question').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};
-$('reset').onclick=()=>{sessionId=null;if($('product').value){$('conversation').replaceChildren(node('div',`已开始 ${$('product').selectedOptions[0].text} 的新会话。`,'bubble bot'));loadFaqSuggestions()}else{$('conversation').replaceChildren();featured()}};
+$('reset').onclick=()=>{sessionId=null;if($('product').value){$('conversation').replaceChildren(node('div',`已开始 ${$('product').selectedOptions[0].text} 的新会话。`,'bubble bot'));loadFaqSuggestions()}else{$('conversation').replaceChildren();$('productChooser').open=true;featured()}};
 $('switchProduct').onclick=()=>switchProduct().catch(e=>{$('conversation').append(node('div',e.message,'error'))});
 $('product').onchange=()=>{if($('product').value)selectProduct($('product').value);else switchProduct()};
 $('version').onchange=()=>{sessionId=null;$('currentScope').textContent=scopeLabel();$('conversation').append(node('div',`已切换到 ${$('version').value} 版本。`,'bubble bot'));loadFaqSuggestions()};
@@ -208,7 +223,7 @@ $('searchButton').onclick=()=>findProduct().catch(e=>{$('conversation').append(n
 $('productSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('searchButton').click()}};
 $('addProduct').onclick=async()=>{try{await api('/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:$('newId').value,name:$('newName').value})});$('adminMsg').textContent='产品已添加';await products();selectProduct($('newId').value)}catch(e){$('adminMsg').textContent=e.message}};
 $('upload').onclick=async()=>{const f=$('file').files[0];if(!$('product').value){$('adminMsg').textContent='请先选择产品';return}if(!f){$('adminMsg').textContent='请先选择文件';return}const form=new FormData();form.append('product_id',$('product').value);form.append('version',$('version').value||'1.0');form.append('category',$('category').value);form.append('title',f.name);form.append('file',f);try{const r=await api('/api/documents',{method:'POST',body:form});$('adminMsg').textContent=`导入成功：${r.chunks} 个片段、${r.faqs} 个常见问题；${cleaningSummary(r.cleaning)}`;await products();$('currentScope').textContent=scopeLabel();loadFaqSuggestions()}catch(e){$('adminMsg').textContent=e.message}};
-products().then(featured).then(refresh).catch(e=>{$('productChooser').textContent='产品列表加载失败，请刷新页面后重试。';$('conversation').append(node('div',e.message,'error'))});
+products().then(featured).then(refresh).catch(e=>{$('productChooserTitle').textContent='产品列表加载失败，请刷新页面后重试。';$('conversation').append(node('div',e.message,'error'))});
 </script>
 </body>
 </html>
