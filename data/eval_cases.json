@@ -1,0 +1,58 @@
+[
+  {
+    "question": "星云笔记最多支持多少个标签？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "answered",
+    "expected_text": "20 个标签",
+    "expected_source": "nova_notes_v2.md"
+  },
+  {
+    "question": "星云笔记最多支持多少个标签？",
+    "product_id": "nova_notes",
+    "version": "1.0",
+    "expected_status": "answered",
+    "expected_text": "10 个标签",
+    "expected_source": "nova_notes_v1.md"
+  },
+  {
+    "question": "星云笔记附件大小限制是多少？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "answered",
+    "expected_text": "25 MB",
+    "expected_source": "nova_notes_v2.md"
+  },
+  {
+    "question": "轨道任务最多支持多少个任务？",
+    "product_id": "orbit_tasks",
+    "version": "1.0",
+    "expected_status": "answered",
+    "expected_text": "50 个任务",
+    "expected_source": "orbit_tasks_v1.md"
+  },
+  {
+    "question": "星云笔记支持语音转写吗？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "no_answer"
+  },
+  {
+    "question": "星云笔记价格是多少？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "no_answer"
+  },
+  {
+    "question": "星云笔记支持导出 Word 吗？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "no_answer"
+  },
+  {
+    "question": "我要退款",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "handoff"
+  }
+]
